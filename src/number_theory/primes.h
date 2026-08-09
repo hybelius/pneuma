@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 
-namespace numeric::primes
+namespace pneuma::primes
 {
 
 template<typename T>
@@ -43,7 +43,7 @@ std::vector<prime_factor<T>> get_prime_factors(T number)
     }
     if (multiplicity_2 > 0)
     {
-        factors.emplace_back(2, multiplicity_2);
+        factors.emplace_back(static_cast<T>(2), multiplicity_2);
         if (number == 1)
         {
             return factors;
