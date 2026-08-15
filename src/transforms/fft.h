@@ -1,7 +1,8 @@
 #include <cstdint>
 #include <vector>
+#include <span>
 
-namespace numeric::transforms
+namespace pneuma::transforms
 {
 
 enum class SIN_COS_TRF_TYPE
