@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_range_equals.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <cmath>
 #include <print>
 #include <ranges>
 #include <span>
@@ -16,6 +18,20 @@ struct transform_test_data_t
     std::vector<float> sin_3;
     std::vector<float> cos_3;
 };
+
+bool is_close(float a, float b)
+{
+    if (std::isnan(a))
+    {
+        return std::isnan(b);
+    }
+    if (std::isinf(a))
+    {
+        return a == b;
+    }
+    return std::abs(a - b) <= 20 * std::numeric_limits<float>::epsilon();
+
+}
 
 const std::vector<transform_test_data_t> test_data {
     {
@@ -95,11 +111,7 @@ TEST_CASE("Sine transform type 2", "[transforms]")
     {
         std::vector<float> output;
         REQUIRE_NOTHROW( output = discrete_sine_transform(test_set.input, SIN_COS_TRF_TYPE::II) );
-
-        for (const auto& [result, ref] : std::views::zip(output, test_set.sin_2))
-        {
-            REQUIRE_THAT(result, Catch::Matchers::WithinRel(ref));
-        }
+        REQUIRE_THAT(output, Catch::Matchers::RangeEquals(test_set.sin_2, is_close));
     }
 }
 
@@ -109,11 +121,7 @@ TEST_CASE("Cosine transform type 2", "[transforms]")
     {
         std::vector<float> output;
         REQUIRE_NOTHROW( output = discrete_cosine_transform(test_set.input, SIN_COS_TRF_TYPE::II) );
-
-        for (const auto& [result, ref] : std::views::zip(output, test_set.cos_2))
-        {
-            REQUIRE_THAT(result, Catch::Matchers::WithinRel(ref));
-        }
+        REQUIRE_THAT(output, Catch::Matchers::RangeEquals(test_set.cos_2, is_close));
     }
 }
 
@@ -123,11 +131,7 @@ TEST_CASE("Sine transform type 3", "[transforms]")
     {
         std::vector<float> output;
         REQUIRE_NOTHROW( output = discrete_sine_transform(test_set.input, SIN_COS_TRF_TYPE::III) );
-
-        for (const auto& [result, ref] : std::views::zip(output, test_set.sin_3))
-        {
-            REQUIRE_THAT(result, Catch::Matchers::WithinRel(ref));
-        }
+        REQUIRE_THAT(output, Catch::Matchers::RangeEquals(test_set.sin_3, is_close));
     }
 }
 
@@ -137,10 +141,6 @@ TEST_CASE("Cosine transform type 3", "[transforms]")
     {
         std::vector<float> output;
         REQUIRE_NOTHROW( output = discrete_cosine_transform(test_set.input, SIN_COS_TRF_TYPE::III) );
-
-        for (const auto& [result, ref] : std::views::zip(output, test_set.cos_3))
-        {
-            REQUIRE_THAT(result, Catch::Matchers::WithinRel(ref));
-        }
+        REQUIRE_THAT(output, Catch::Matchers::RangeEquals(test_set.cos_3, is_close));
     }
 }
