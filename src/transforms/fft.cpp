@@ -8,12 +8,6 @@
 namespace pneuma::transforms
 {
 
-struct sin_and_cos_trf
-{
-    float sin;
-    float cos;
-};
-
 inline size_t floor_log2(size_t number)
 {
     if (number <= 1)
@@ -37,7 +31,7 @@ inline size_t floor_log2(size_t number)
 // Calculates the discrete sine and cosine transforms of type 2
 // for a single factor "2".
 inline void _discrete_sine_and_cosine_type_2_factor_2(const std::span<const float> input_sin, const std::span<const float> input_cos,
-                                                      std::span<float> output_sin, std::span<float> output_cos,
+                                                      const std::span<float> output_sin, const std::span<float> output_cos,
                                                       size_t stride, size_t block_size)
 {
     auto half_size = block_size / 2;
@@ -145,6 +139,85 @@ inline std::pair<std::vector<float>, std::vector<float>> _discrete_sine_and_cosi
     }
 }
 
+inline void _discrete_sine_type_3_factor_2(const std::span<const float> input_sin, const std::span<const float> input_cos,
+                                           const std::span<float> output_sin, const std::span<float> output_cos,
+                                           size_t stride, size_t block_size)
+{
+    for (size_t k = 0; k < block_size / 2; k++)
+    {
+        float angle = M_PI * (k + 0.5f) / block_size;
+        float twiddle_sin, twiddle_cos;
+        sincosf(angle, &twiddle_sin, &twiddle_cos);
+
+        for (size_t block_idx = 0; block_idx < stride - 1; block_idx++)
+        {
+            auto sin_even = input_sin[block_idx + stride * (2 * k)];
+            auto sin_odd  = input_sin[block_idx + stride * (2 * k + 1)];
+            auto cos_even = input_cos[block_idx + stride * (2 * k)];
+            auto cos_odd  = input_cos[block_idx + stride * (2 * k + 1)];
+            auto sin_even_term = sin_even * twiddle_cos - cos_even * twiddle_sin;
+            auto cos_even_term = cos_even * twiddle_cos + sin_even * twiddle_sin;
+
+            output_sin[block_idx + stride * k] = sin_odd + sin_even_term;
+            output_cos[block_idx + stride * k] = cos_odd + cos_even_term;
+
+            // Input block has half the size of output block (size N)
+            // Extract values at N/2 + k by "reflecting" indices across N/2
+            output_sin[block_idx + stride * (block_size - k - 1)] = - sin_odd + sin_even_term;
+            output_cos[block_idx + stride * (block_size - k - 1)] =   cos_odd - cos_even_term;
+        }
+
+        // block_idx = stride-1 never needs the odd cosine transform
+        size_t block_idx = stride - 1;
+        auto sin_odd  = input_sin[block_idx + stride * (2 * k + 1)];
+        auto sin_even = input_sin[block_idx + stride * (2 * k)];
+        auto cos_even = input_cos[block_idx + stride * (2 * k)];
+        auto sin_even_term = sin_even * twiddle_cos - cos_even * twiddle_sin;
+
+        // Note: the cos transform at these indices is never used, so we skip calculating them
+        output_sin[block_idx + stride * k]                    =   sin_odd + sin_even_term;
+        output_sin[block_idx + stride * (block_size - k - 1)] = - sin_odd + sin_even_term;
+    }
+}
+
+inline void _discrete_cosine_type_3_factor_2(const std::span<const float> input_sin, const std::span<const float> input_cos,
+                                             const std::span<float> output_sin, const std::span<float> output_cos,
+                                             size_t stride, size_t block_size)
+{
+    for (size_t k = 0; k < block_size / 2; k++)
+    {
+        float angle = M_PI * (k + 0.5f) / block_size;
+        float twiddle_sin, twiddle_cos;
+        sincosf(angle, &twiddle_sin, &twiddle_cos);
+
+        // block_idx = 0 never needs the even sine transform
+        auto cos_even = input_cos[stride * (2 * k)];
+        auto cos_odd  = input_cos[stride * (2 * k + 1)];
+        auto sin_odd  = input_sin[stride * (2 * k + 1)];
+        auto cos_odd_term = cos_odd * twiddle_cos - sin_odd * twiddle_sin;
+
+        // Note: the sine transform at these indices is never used, so we skip calculating them
+        output_cos[stride * k]                    = cos_even + cos_odd_term;
+        output_cos[stride * (block_size - k - 1)] = cos_even - cos_odd_term;
+
+        for (size_t block_idx = 1; block_idx < stride; block_idx++)
+        {
+            auto cos_even = input_cos[block_idx + stride * (2 * k)];
+            auto cos_odd  = input_cos[block_idx + stride * (2 * k + 1)];
+            auto sin_even = input_sin[block_idx + stride * (2 * k)];
+            auto sin_odd  = input_sin[block_idx + stride * (2 * k + 1)];
+            auto sin_odd_term = sin_odd * twiddle_cos + cos_odd * twiddle_sin;
+            auto cos_odd_term = cos_odd * twiddle_cos - sin_odd * twiddle_sin;
+
+            output_cos[block_idx + stride * k] = cos_even + cos_odd_term;
+            output_sin[block_idx + stride * k] = sin_even + sin_odd_term;
+            // Input block has half the size of output block (size N)
+            // Extract values at N/2 + k by "reflecting" indices across N/2
+            output_cos[block_idx + stride * (block_size - k - 1)] =   cos_even - cos_odd_term;
+            output_sin[block_idx + stride * (block_size - k - 1)] = - sin_even + sin_odd_term;
+        }
+    }
+}
 
 std::vector<float> _discrete_cosine_transform_pow_2_type_2(const std::span<const float> input)
 {
@@ -205,84 +278,52 @@ std::vector<float> _discrete_cosine_transform_pow_2_type_3(const std::span<const
     // buffer_1 is initialized to equal `input` in .cos.
     // buffer_2 is default initialized to have the same size as input.
     // The computation writes back and forth between buffer_1 and buffer_2
-    std::vector<sin_and_cos_trf> buffer_1;
-    std::vector<sin_and_cos_trf> buffer_2(input.size());
-    buffer_1.reserve(input.size());
+    std::vector<float> buffer_1_cos, buffer_1_sin(trf_size);
+    std::vector<float> buffer_2_cos(trf_size), buffer_2_sin(trf_size);
+    buffer_1_cos.reserve(input.size());
     for (auto val : input)
     {
-        buffer_1.emplace_back(0, val);
+        buffer_1_cos.emplace_back(val);
     }
     // Cosine transform type 3 is defined as 0.5 * x[0] + a sum over x[n], n=1..N-1
     // Multiplying x[0] by 0.5 lets us include it as the first term in the sum, simplifying the algorithm
-    buffer_1[0].cos *= 0.5f;
-    std::span<sin_and_cos_trf> stage_input(buffer_1);
-    std::span<sin_and_cos_trf> stage_output(buffer_2);
+    buffer_1_cos[0] *= 0.5f;
+    std::span<float> stage_input_sin(buffer_1_sin);
+    std::span<float> stage_input_cos(buffer_1_cos);
+    std::span<float> stage_output_sin(buffer_2_sin);
+    std::span<float> stage_output_cos(buffer_2_cos);
 
     for (size_t stage = 0; stage < log2_size - 1; stage++)
     {
         size_t stride = (trf_size >> (stage + 1));
         size_t block_size = 1 << (stage + 1);
-        size_t half_size = block_size / 2;
 
-        for (size_t k = 0; k < half_size; k++)
-        {
-            float angle = M_PI * (k + 0.5f) / block_size;
-            float twiddle_sin, twiddle_cos;
-            sincosf(angle, &twiddle_sin, &twiddle_cos);
+        _discrete_cosine_type_3_factor_2(stage_input_sin, stage_input_cos, stage_output_sin, stage_output_cos, stride, block_size);
 
-            // block_idx = 0 never needs the even sine transform
-            auto cos_even = stage_input[(2 * k) * stride].cos;
-            auto [sin_odd, cos_odd] = stage_input[(2 * k + 1) * stride];
-            auto cos_odd_term = cos_odd * twiddle_cos - sin_odd * twiddle_sin;
-
-            // Note: the sine transform at these indices is never used, so we skip calculating them
-            stage_output[k * stride].cos                    = cos_even + cos_odd_term;
-            stage_output[(block_size - k - 1) * stride].cos = cos_even - cos_odd_term;
-
-            for (size_t block_idx = 1; block_idx < stride; block_idx++)
-            {
-                auto [sin_even, cos_even] = stage_input[block_idx + (2 * k) * stride];
-                auto [sin_odd,  cos_odd]  = stage_input[block_idx + (2 * k + 1) * stride];
-                auto sin_odd_term = sin_odd * twiddle_cos + cos_odd * twiddle_sin;
-                auto cos_odd_term = cos_odd * twiddle_cos - sin_odd * twiddle_sin;
-
-                stage_output[block_idx + k * stride] = {
-                    sin_even + sin_odd_term,
-                    cos_even + cos_odd_term
-                };
-                // Input block has half the size of output block (size N)
-                // Extract values at N/2 + k by "reflecting" indices across N/2
-                stage_output[block_idx + (block_size - k - 1) * stride] = {
-                    - sin_even + sin_odd_term,
-                      cos_even - cos_odd_term
-                };
-            }
-        }
-
-        std::swap(stage_input, stage_output);
+        std::swap(stage_input_sin, stage_output_sin);
+        std::swap(stage_input_cos, stage_output_cos);
     }
 
     // Final iteration: stage = log2_size - 1
     // `stride` is 1 and only the cosine transform output needs to be calculated
     // This is the "block_idx == 0" step from previous stages
     size_t half_size = trf_size / 2;
-    std::vector<float> output(trf_size);
-
     for (size_t k = 0; k < half_size; k++)
     {
         float angle = M_PI * (k + 0.5f) / trf_size;
         float twiddle_sin, twiddle_cos;
         sincosf(angle, &twiddle_sin, &twiddle_cos);
 
-        auto cos_even = stage_input[2 * k].cos;
-        auto [sin_odd, cos_odd] = stage_input[2 * k + 1];
+        auto cos_even = stage_input_cos[2 * k];
+        auto cos_odd  = stage_input_cos[2 * k + 1];
+        auto sin_odd  = stage_input_sin[2 * k + 1];
         auto cos_odd_term = cos_odd * twiddle_cos - sin_odd * twiddle_sin;
 
-        output[k]                = cos_even + cos_odd_term;
-        output[trf_size - k - 1] = cos_even - cos_odd_term;
+        stage_output_cos[k]                = cos_even + cos_odd_term;
+        stage_output_cos[trf_size - k - 1] = cos_even - cos_odd_term;
     }
 
-    return output;
+    return stage_output_cos.data() == buffer_1_cos.data() ? buffer_1_cos : buffer_2_cos;
 }
 
 std::vector<float> _discrete_sine_transform_pow_2_type_2(const std::span<const float> input)
@@ -345,86 +386,53 @@ std::vector<float> _discrete_sine_transform_pow_2_type_3(const std::span<const f
     // buffer_1 is initialized to equal `input` in .sin.
     // buffer_2 is default initialized to have the same size as input.
     // The computation writes back and forth between buffer_1 and buffer_2
-    std::vector<sin_and_cos_trf> buffer_1;
-    std::vector<sin_and_cos_trf> buffer_2(input.size());
-    buffer_1.reserve(input.size());
+    std::vector<float> buffer_1_sin, buffer_1_cos(trf_size);
+    std::vector<float> buffer_2_sin(trf_size), buffer_2_cos(trf_size);
+    buffer_1_sin.reserve(trf_size);
     for (auto val : input)
     {
-        buffer_1.emplace_back(val, 0);
+        buffer_1_sin.emplace_back(val);
     }
     // Sine transform type 3 is defined as 0.5 * x[N-1] + a sum over x[n], n=0..N-2
     // Multiplying x[N-1] by 0.5 lets us include it as the last term in the sum, simplifying the algorithm
-    buffer_1[trf_size - 1].sin *= 0.5f;
-    std::span<sin_and_cos_trf> stage_input(buffer_1);
-    std::span<sin_and_cos_trf> stage_output(buffer_2);
+    buffer_1_sin[trf_size - 1] *= 0.5f;
+    std::span<float> stage_input_sin(buffer_1_sin);
+    std::span<float> stage_input_cos(buffer_1_cos);
+    std::span<float> stage_output_sin(buffer_2_sin);
+    std::span<float> stage_output_cos(buffer_2_cos);
 
     for (size_t stage = 0; stage < log2_size - 1; stage++)
     {
         size_t stride = (trf_size >> (stage + 1));
         size_t block_size = 1 << (stage + 1);
-        size_t half_size = block_size / 2;
 
-        for (size_t k = 0; k < half_size; k++)
-        {
-            float angle = M_PI * (k + 0.5f) / block_size;
-            float twiddle_sin, twiddle_cos;
-            sincosf(angle, &twiddle_sin, &twiddle_cos);
+        _discrete_sine_type_3_factor_2(stage_input_sin, stage_input_cos, stage_output_sin, stage_output_cos, stride, block_size);
 
-            for (size_t block_idx = 0; block_idx < stride - 1; block_idx++)
-            {
-                auto [sin_even, cos_even] = stage_input[block_idx + (2 * k) * stride];
-                auto [sin_odd,  cos_odd]  = stage_input[block_idx + (2 * k + 1) * stride];
-                auto sin_even_term = sin_even * twiddle_cos - cos_even * twiddle_sin;
-                auto cos_even_term = cos_even * twiddle_cos + sin_even * twiddle_sin;
-
-                stage_output[block_idx + k * stride] = {
-                    sin_odd + sin_even_term,
-                    cos_odd + cos_even_term
-                };
-                // Input block has half the size of output block (size N)
-                // Extract values at N/2 + k by "reflecting" indices across N/2
-                stage_output[block_idx + (block_size - k - 1) * stride] = {
-                    - sin_odd + sin_even_term,
-                      cos_odd - cos_even_term
-                };
-            }
-
-            // block_idx = stride-1 never needs the odd cosine transform
-            size_t block_idx = stride - 1;
-            auto sin_odd = stage_input[block_idx + (2 * k + 1) * stride].sin;
-            auto [sin_even, cos_even] = stage_input[block_idx + (2 * k) * stride];
-            auto sin_even_term = sin_even * twiddle_cos - cos_even * twiddle_sin;
-
-            // Note: the cos transform at these indices is never used, so we skip calculating them
-            stage_output[block_idx + k * stride].sin                    =   sin_odd + sin_even_term;
-            stage_output[block_idx + (block_size - k - 1) * stride].sin = - sin_odd + sin_even_term;
-        }
-
-        std::swap(stage_input, stage_output);
+        std::swap(stage_input_sin, stage_output_sin);
+        std::swap(stage_input_cos, stage_output_cos);
     }
 
     // Final iteration: stage = log2_size - 1
-    // `stride` is 1 and only the cosine transform output needs to be calculated
+    // `stride` is 1 and only the sine transform output needs to be calculated
     // This is the "block_idx == N-1" step from previous stages
     // block_idx = stride - 1 == 0
     size_t half_size = trf_size / 2;
-    std::vector<float> output(trf_size);
-
     for (size_t k = 0; k < half_size; k++)
     {
         float angle = M_PI * (k + 0.5f) / trf_size;
         float twiddle_sin, twiddle_cos;
         sincosf(angle, &twiddle_sin, &twiddle_cos);
 
-        auto sin_odd = stage_input[2 * k + 1].sin;
-        auto [sin_even, cos_even] = stage_input[2 * k];
+        auto sin_odd  = stage_input_sin[2 * k + 1];
+        auto sin_even = stage_input_sin[2 * k];
+        auto cos_even = stage_input_cos[2 * k];
         auto sin_even_term = sin_even * twiddle_cos - cos_even * twiddle_sin;
 
-        output[k]                =   sin_odd + sin_even_term;
-        output[trf_size - k - 1] = - sin_odd + sin_even_term;
+        stage_output_sin[k]                =   sin_odd + sin_even_term;
+        stage_output_sin[trf_size - k - 1] = - sin_odd + sin_even_term;
     }
 
-    return output;
+    return stage_output_sin.data() == buffer_1_sin.data() ? buffer_1_sin : buffer_2_sin;
 }
 
 std::vector<float> discrete_cosine_transform_pow_2(const std::span<const float> input, SIN_COS_TRF_TYPE type)
