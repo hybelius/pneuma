@@ -49,13 +49,12 @@ inline void _discrete_sine_and_cosine_type_2_factor_2(const std::span<const floa
 
     for (uint32_t k = 1; k < half_size; k++)
     {
+        // TODO: implement custom sin/cos for constrained input angles
+        float angle = M_PIf * float(k) / (2 * block_size);
+        float twiddle_sin, twiddle_cos;
+        sincosf(angle, &twiddle_sin, &twiddle_cos);
         for (uint32_t block_idx = 0; block_idx < stride; block_idx++)
         {
-            // TODO: implement custom sin/cos for constrained input angles
-            float angle = M_PIf * float(k) / (2 * block_size);
-            float twiddle_sin, twiddle_cos;
-            sincosf(angle, &twiddle_sin, &twiddle_cos);
-
             auto cos_even = input_cos[block_idx + stride * (2 * k)];
             auto cos_odd  = input_cos[block_idx + stride * (2 * k + 1)];
             auto sin_even = input_sin[block_idx + stride * (2 * (k - 1))];
@@ -111,12 +110,12 @@ inline void _discrete_sine_and_cosine_type_2_factor_3(const std::span<const floa
     // Cosine transform values at index k correspond to Sine transform values at index k - 1
     for (uint32_t k = 1; k < third_size; k++)
     {
+        // TODO: implement custom sin/cos for constrained input angles
+        float angle = M_PIf * float(k) / block_size;
+        float twiddle_sin, twiddle_cos;
+        sincosf(angle, &twiddle_sin, &twiddle_cos);
         for (uint32_t block_idx = 0; block_idx < stride; block_idx++)
         {
-            // TODO: implement custom sin/cos for constrained input angles
-            float angle = M_PIf * float(k) / (3 * block_size);
-            float twiddle_sin, twiddle_cos;
-            sincosf(angle, &twiddle_sin, &twiddle_cos);
 
             auto cos_mod0 = input_cos[block_idx + stride * (3 * k)];
             auto cos_mod1 = input_cos[block_idx + stride * (3 * k + 1)];
@@ -319,7 +318,7 @@ inline void _discrete_sine_type_2_factor_3_final_stage(const std::span<const flo
     // Cosine transform values at index k correspond to Sine transform values at index k - 1
     for (uint32_t k = 1; k < third_size; k++)
     {
-        float angle = M_PIf * float(k) / (3 * trf_size);
+        float angle = M_PIf * float(k) / trf_size;
         float twiddle_sin, twiddle_cos;
         sincosf(angle, &twiddle_sin, &twiddle_cos);
 
@@ -376,7 +375,7 @@ inline void _discrete_cosine_type_2_factor_3_final_stage(const std::span<const f
     // Cosine transform values at index k correspond to Sine transform values at index k - 1
     for (uint32_t k = 1; k < third_size; k++)
     {
-        float angle = M_PIf * float(k) / (3 * trf_size);
+        float angle = M_PIf * float(k) / trf_size;
         float twiddle_sin, twiddle_cos;
         sincosf(angle, &twiddle_sin, &twiddle_cos);
 
