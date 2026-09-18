@@ -124,34 +124,25 @@ inline void _discrete_sine_and_cosine_type_2_factor_3(const std::span<const floa
             auto sin_mod1 = input_sin[block_idx + stride * (3 * (k - 1) + 1)];
             auto sin_mod2 = input_sin[block_idx + stride * (3 * (k - 1) + 2)];
 
-            auto cos_sum  = cos_mod0 + cos_mod2;
-            auto cos_diff = cos_mod0 - cos_mod2;
-            auto sin_sum  = sin_mod0 + sin_mod2;
-            auto sin_diff = sin_mod0 - sin_mod2;
+            float sin_term_1 =   twiddle_cos * sin_mod0 - twiddle_sin * cos_mod0;
+            float sin_term_2 =   twiddle_cos * sin_mod2 + twiddle_sin * cos_mod2;
+            float cos_term_1 =   twiddle_sin * sin_mod0 + twiddle_cos * cos_mod0;
+            float cos_term_2 = - twiddle_sin * sin_mod2 + twiddle_cos * cos_mod2;
 
-            output_cos[block_idx + stride * (k)]   = cos_mod1 + twiddle_cos * cos_sum + twiddle_sin * sin_diff;
-            output_sin[block_idx + stride * (k-1)] = sin_mod1 + twiddle_cos * sin_sum - twiddle_sin * cos_diff;
+            float sin_refl_term_1 = cos_pi_over_3 * (sin_term_1 + sin_term_2);
+            float sin_refl_term_2 = sin_pi_over_3 * (cos_term_1 - cos_term_2);
+            float cos_refl_term_1 = cos_pi_over_3 * (cos_term_1 + cos_term_2);
+            float cos_refl_term_2 = sin_pi_over_3 * (sin_term_1 - sin_term_2);
+
+            output_cos[block_idx + stride * (k)]   = cos_mod1 + cos_term_1 + cos_term_2;
+            output_sin[block_idx + stride * (k-1)] = sin_mod1 + sin_term_1 + sin_term_2;
 
             // output at k > Q == N/3 is acquired by reflecting k across Q and across 2Q
             // input at k is used for output at k' == 2Q - k and at k'' = 2Q + k
-            // angle is (pi / N) (2 Q - k) == (2 pi / 3 - pi k / N)
-            // TODO: optimize arithmetic
-            auto twiddle_cos_2Qmk = - cos_pi_over_3 * twiddle_cos + sin_pi_over_3 * twiddle_sin;
-            auto twiddle_sin_2Qmk =   sin_pi_over_3 * twiddle_cos + cos_pi_over_3 * twiddle_sin;
-
-            // angle is (pi / N) (2 Q + k) == (2 pi / 3 + pi k / N)
-            auto twiddle_cos_2Qpk = - cos_pi_over_3 * twiddle_cos - sin_pi_over_3 * twiddle_sin;
-            auto twiddle_sin_2Qpk =   sin_pi_over_3 * twiddle_cos - cos_pi_over_3 * twiddle_sin;
-
-            output_cos[block_idx + stride * (2 * third_size - k)]     = - cos_mod1 - twiddle_cos_2Qmk * cos_sum
-                                                                                   + twiddle_sin_2Qmk * sin_diff;
-            output_sin[block_idx + stride * (2 * third_size - k - 1)] =   sin_mod1 + twiddle_cos_2Qmk * sin_sum
-                                                                                   + twiddle_sin_2Qmk * cos_diff;
-
-            output_cos[block_idx + stride * (2 * third_size + k)]     = - cos_mod1 - twiddle_cos_2Qpk * cos_sum
-                                                                                   - twiddle_sin_2Qpk * sin_diff;
-            output_sin[block_idx + stride * (2 * third_size + k - 1)] = - sin_mod1 - twiddle_cos_2Qpk * sin_sum
-                                                                                   + twiddle_sin_2Qpk * cos_diff;
+            output_cos[block_idx + stride * (2 * third_size - k)]     = - cos_mod1 + cos_refl_term_1 + cos_refl_term_2;
+            output_sin[block_idx + stride * (2 * third_size - k - 1)] =   sin_mod1 - sin_refl_term_1 + sin_refl_term_2;
+            output_cos[block_idx + stride * (2 * third_size + k)]     = - cos_mod1 + cos_refl_term_1 - cos_refl_term_2;
+            output_sin[block_idx + stride * (2 * third_size + k - 1)] = - sin_mod1 + sin_refl_term_1 + sin_refl_term_2;
         }
     }
 
@@ -328,23 +319,20 @@ inline void _discrete_sine_type_2_factor_3_final_stage(const std::span<const flo
         auto sin_mod1 = input_sin[3 * (k - 1) + 1];
         auto sin_mod2 = input_sin[3 * (k - 1) + 2];
 
-        auto cos_diff = cos_mod0 - cos_mod2;
-        auto sin_sum  = sin_mod0 + sin_mod2;
+        float sin_term_1 =   twiddle_cos * sin_mod0 - twiddle_sin * cos_mod0;
+        float sin_term_2 =   twiddle_cos * sin_mod2 + twiddle_sin * cos_mod2;
+        float cos_term_1 =   twiddle_sin * sin_mod0 + twiddle_cos * cos_mod0;
+        float cos_term_2 = - twiddle_sin * sin_mod2 + twiddle_cos * cos_mod2;
 
-        output_sin[k-1] = sin_mod1 + twiddle_cos * sin_sum - twiddle_sin * cos_diff;
+        float sin_refl_term_1 = cos_pi_over_3 * (sin_term_1 + sin_term_2);
+        float sin_refl_term_2 = sin_pi_over_3 * (cos_term_1 - cos_term_2);
+
+        output_sin[k - 1] = sin_mod1 + sin_term_1 + sin_term_2;
 
         // output at k > Q == N/3 is acquired by reflecting k across Q and across 2Q
         // input at k is used for output at k' == 2Q - k and at k'' = 2Q + k
-        // angle is (pi / N) (2 Q - k) == (2 pi / 3 - pi k / N)
-        auto twiddle_cos_2Qmk = - cos_pi_over_3 * twiddle_cos + sin_pi_over_3 * twiddle_sin;
-        auto twiddle_sin_2Qmk =   sin_pi_over_3 * twiddle_cos + cos_pi_over_3 * twiddle_sin;
-
-        // angle is (pi / N) (2 Q + k) == (2 pi / 3 + pi k / N)
-        auto twiddle_cos_2Qpk = - cos_pi_over_3 * twiddle_cos - sin_pi_over_3 * twiddle_sin;
-        auto twiddle_sin_2Qpk =   sin_pi_over_3 * twiddle_cos - cos_pi_over_3 * twiddle_sin;
-
-        output_sin[2 * third_size - k - 1] =   sin_mod1 + twiddle_cos_2Qmk * sin_sum + twiddle_sin_2Qmk * cos_diff;
-        output_sin[2 * third_size + k - 1] = - sin_mod1 - twiddle_cos_2Qpk * sin_sum + twiddle_sin_2Qpk * cos_diff;
+        output_sin[2 * third_size - k - 1] =   sin_mod1 - sin_refl_term_1 + sin_refl_term_2;
+        output_sin[2 * third_size + k - 1] = - sin_mod1 + sin_refl_term_1 + sin_refl_term_2;
     }
 
     // Special handling of k = N - 1 and k = Q
@@ -385,23 +373,20 @@ inline void _discrete_cosine_type_2_factor_3_final_stage(const std::span<const f
         auto sin_mod0 = input_sin[3 * (k - 1)];
         auto sin_mod2 = input_sin[3 * (k - 1) + 2];
 
-        auto cos_sum  = cos_mod0 + cos_mod2;
-        auto sin_diff = sin_mod0 - sin_mod2;
+        float sin_term_1 =   twiddle_cos * sin_mod0 - twiddle_sin * cos_mod0;
+        float sin_term_2 =   twiddle_cos * sin_mod2 + twiddle_sin * cos_mod2;
+        float cos_term_1 =   twiddle_sin * sin_mod0 + twiddle_cos * cos_mod0;
+        float cos_term_2 = - twiddle_sin * sin_mod2 + twiddle_cos * cos_mod2;
 
-        output_cos[k] = cos_mod1 + twiddle_cos * cos_sum + twiddle_sin * sin_diff;
+        float cos_refl_term_1 = cos_pi_over_3 * (cos_term_1 + cos_term_2);
+        float cos_refl_term_2 = sin_pi_over_3 * (sin_term_1 - sin_term_2);
+
+        output_cos[k] = cos_mod1 + cos_term_1 + cos_term_2;
 
         // output at k > Q == N/3 is acquired by reflecting k across Q and across 2Q
         // input at k is used for output at k' == 2Q - k and at k'' = 2Q + k
-        // angle is (pi / N) (2 Q - k) == (2 pi / 3 - pi k / N)
-        auto twiddle_cos_2Qmk = - cos_pi_over_3 * twiddle_cos + sin_pi_over_3 * twiddle_sin;
-        auto twiddle_sin_2Qmk =   sin_pi_over_3 * twiddle_cos + cos_pi_over_3 * twiddle_sin;
-
-        // angle is (pi / N) (2 Q + k) == (2 pi / 3 + pi k / N)
-        auto twiddle_cos_2Qpk = - cos_pi_over_3 * twiddle_cos - sin_pi_over_3 * twiddle_sin;
-        auto twiddle_sin_2Qpk =   sin_pi_over_3 * twiddle_cos - cos_pi_over_3 * twiddle_sin;
-
-        output_cos[2 * third_size - k] = - cos_mod1 - twiddle_cos_2Qmk * cos_sum + twiddle_sin_2Qmk * sin_diff;
-        output_cos[2 * third_size + k] = - cos_mod1 - twiddle_cos_2Qpk * cos_sum - twiddle_sin_2Qpk * sin_diff;
+        output_cos[2 * third_size - k] = - cos_mod1 + cos_refl_term_1 + cos_refl_term_2;
+        output_cos[2 * third_size + k] = - cos_mod1 + cos_refl_term_1 - cos_refl_term_2;
     }
 
     // Special handling of k = N - 1 and k = Q
